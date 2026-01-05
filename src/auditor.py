@@ -270,6 +270,13 @@ def scan_directory(root_path: str, recursive: bool = True, max_depth: int = 8):
     """
     findings = []
     
+    # === FIX: First check the root path itself ===
+    if os.path.exists(root_path):
+        root_finding = check_file_permissions(root_path)
+        if root_finding:
+            findings.append(root_finding)
+    # === END FIX ===
+    
     def _scan(current_path: str, depth: int = 0):
         if depth > max_depth:
             return
@@ -277,12 +284,6 @@ def scan_directory(root_path: str, recursive: bool = True, max_depth: int = 8):
         # Skip excluded paths
         if should_skip_path(current_path):
             return
-        
-        # === FIX: Check the current path itself ===
-        finding = check_file_permissions(current_path)
-        if finding:
-            findings.append(finding)
-        # === END FIX ===
         
         # If directory and recursive scanning enabled
         if recursive and os.path.isdir(current_path):
@@ -294,14 +295,24 @@ def scan_directory(root_path: str, recursive: bool = True, max_depth: int = 8):
                         continue
                     
                     full_path = os.path.join(current_path, entry)
-                    _scan(full_path, depth + 1)
                     
+                    # === FIX: Check each file/directory ===
+                    finding = check_file_permissions(full_path)
+                    if finding:
+                        findings.append(finding)
+                    # === END FIX ===
+                    
+                    # Recurse if it's a directory
+                    if os.path.isdir(full_path):
+                        _scan(full_path, depth + 1)
+                        
             except (PermissionError, OSError):
                 # No permission to read directory
                 pass
     
-    # Start scanning - this will now check the root_path
-    _scan(root_path)
+    # Start recursive scanning if needed
+    if recursive:
+        _scan(root_path)
     return findings
 
 # ============================================================================
