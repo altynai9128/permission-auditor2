@@ -1,4 +1,4 @@
-# 🔐 Linux Permission Auditor
+# Linux Permission Auditor
 
 ## How to Use (Practical Guide)
 
