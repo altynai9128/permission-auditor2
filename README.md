@@ -23,9 +23,8 @@ This tool helps identify and safely fix such problems.
 - Linux/Unix system
 - Optional: Docker (for container scanning)
 
-### Command Line Options
+## Command Line Options
 
-```
 usage: perm-audit [-h] [--version] [-r] [-d] [-f] [-a] [-i] [-j] [-o OUTPUT] [path]
 
 Linux Permission Auditor v1.0.0 - Find and fix dangerous permissions
@@ -44,7 +43,6 @@ optional arguments:
   -j, --json            Output in JSON format
   -o OUTPUT, --output OUTPUT
                         Save report to file
-```
 
 ### Understanding the Output
 
