@@ -1044,14 +1044,18 @@ def print_banner():
 def main():
     """Main function - parse arguments and run audit."""
     parser = argparse.ArgumentParser(
-        description='Linux Permission Auditor - Find and fix dangerous permissions',
+        description=f'Linux Permission Auditor v{VERSION} - Find and fix dangerous permissions',
         epilog='''Examples:
   python auditor.py /var/www                    # Basic scan
   python auditor.py /home -r --fix              # Recursive with fixes
   python auditor.py /path --apply               # Apply fixes (careful!)
   python auditor.py --docker --interactive      # Interactive Docker mode
-  python auditor.py /etc --json                 # JSON output'''
+  python auditor.py /etc --json                 # JSON output''',
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    
+    # Добавим информацию о версии в аргументы
+    parser.add_argument('--version', action='version', version=f'%(prog)s {VERSION}')
     
     parser.add_argument('path', nargs='?', default='.',
                        help='Path to scan (default: current directory)')
@@ -1071,7 +1075,7 @@ def main():
                        help='Save report to file')
     
     args = parser.parse_args()
-    
+       
     # Print banner
     print_banner()
     
