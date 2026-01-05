@@ -18,7 +18,7 @@ This tool helps identify and safely fix such problems.
 - ✅ **Safety first**: Dry-run mode by default, backups on apply
 
 ## 📋 Requirements
-
+- Python 3.6 or higher
 - Linux/Unix system
 - Optional: Docker (for container scanning)
 
@@ -46,4 +46,4 @@ git clone https://github.com/altynai9128/permission-auditor2.git
 cd permission-auditor2
 
 # Run directly from source
-python auditor.py /var/www                    # Basic scan
+python3 src/auditor.py 
