@@ -28,8 +28,9 @@ echo "test-content" > /tmp/test-perm-audit.txt
 chmod 777 /tmp/test-perm-audit.txt
 
 echo "Scanning test file..."
-python3 src/auditor.py /tmp/test-perm-audit.txt --fix | grep -q "CRITICAL"
-if [ $? -eq 0 ]; then
+output=$(python3 src/auditor.py /tmp/test-perm-audit.txt --fix 2>&1)
+echo "Output was: $output"
+if echo "$output" | grep -q "CRITICAL"; then
     echo "✅ Found 777 permission issue"
 else
     echo "❌ Did not find issue"
