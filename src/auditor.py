@@ -278,10 +278,11 @@ def scan_directory(root_path: str, recursive: bool = True, max_depth: int = 8):
         if should_skip_path(current_path):
             return
         
-        # Check current path
+        # === FIX: Check the current path itself ===
         finding = check_file_permissions(current_path)
         if finding:
             findings.append(finding)
+        # === END FIX ===
         
         # If directory and recursive scanning enabled
         if recursive and os.path.isdir(current_path):
@@ -299,7 +300,7 @@ def scan_directory(root_path: str, recursive: bool = True, max_depth: int = 8):
                 # No permission to read directory
                 pass
     
-    # Start scanning
+    # Start scanning - this will now check the root_path
     _scan(root_path)
     return findings
 
