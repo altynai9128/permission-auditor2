@@ -28,20 +28,20 @@ This tool helps identify and safely fix such problems.
 
 - Linux Permission Auditor v1.0.0 - Find and fix dangerous permissions
 
-positional arguments:
-  path                  Path to scan (default: current directory)
+- positional arguments:
+  - path                  Path to scan (default: current directory)
 
-optional arguments:
-  -h, --help            show this help message and exit
-  --version             show program's version number and exit
-  -r, --recursive       Scan recursively
-  -d, --docker          Scan Docker containers
-  -f, --fix             Show fix commands (does not apply automatically)
-  -a, --apply           Apply fixes (use with caution!)
-  -i, --interactive     Interactive fix selection mode
-  -j, --json            Output in JSON format
-  -o OUTPUT, --output OUTPUT
-                        Save report to file
+- optional arguments:
+ - -h, --help            show this help message and exit
+ - --version             show program's version number and exit
+ - -r, --recursive       Scan recursively
+-  -d, --docker          Scan Docker containers
+ - -f, --fix             Show fix commands (does not apply automatically)
+-  -a, --apply           Apply fixes (use with caution!)
+-  -i, --interactive     Interactive fix selection mode
+-  -j, --json            Output in JSON format
+-  -o OUTPUT, --output OUTPUT
+  
 
 ### Understanding the Output
 
