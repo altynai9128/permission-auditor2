@@ -36,19 +36,14 @@ For each issue, you'll get:
 - Exact command to fix the issue
 - Risk reduction assessment
 
-## ⚡ Quick Start (30 seconds)
+# ⚡ Quick Start
 
-# Install
-- git clone https://github.com/yourusername/permission-auditor2.git
-- cd permission-auditor2
-- sudo cp src/auditor.py /usr/local/bin/perm-audit
-- sudo chmod +x /usr/local/bin/perm-audit
+## Run Without Installation (Fastest Way)
 
-# Basic scan
-perm-audit /var/www
+```bash
+# Clone and run immediately
+git clone https://github.com/altynai9128/permission-auditor2.git
+cd permission-auditor2
 
-# Find and show fixes
-perm-audit /home -r --fix
-
-# Apply fixes safely
-perm-audit /path --apply --interactive
+# Run directly from source
+python3 src/auditor.py --help
