@@ -22,47 +22,6 @@ System administrators and developers often "fix" permission issues with the dang
 - Linux/Unix system
 - Optional: Docker (for container scanning)
 
-## 🚀 Quick Start
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/permission-auditor2.git
-cd permission-auditor2
-
-# Run the installer
-sudo ./scripts/install.sh
-
-# Or install manually
-sudo cp src/auditor.py /usr/local/bin/perm-audit
-sudo chmod +x /usr/local/bin/perm-audit
-```
-
-### Common Examples
-
-**1. Check your web server:**
-```bash
-perm-audit /var/www/html -r --fix
-```
-
-**2. Find all dangerous files in home directories:**
-```bash
-perm-audit /home -r
-```
-
-**3. Audit system directories safely:**
-```bash
-sudo perm-audit /etc --fix
-```
-
-**4. Check and fix a specific project:**
-```bash
-perm-audit /opt/myapp -r --apply --interactive
-```
-
-## 📖 Usage Guide
-
 ### Command Line Options
 
 ```
@@ -99,32 +58,6 @@ For each issue, you'll get:
 - Recommended safe permissions
 - Exact command to fix the issue
 - Risk reduction assessment
-
-### Safety Features
-
-1. **Dry-run by default**: The `--fix` flag only shows commands, doesn't execute them
-2. **Confirmation required**: `--apply` requires explicit confirmation
-3. **Backups created**: When applying fixes, backups are created with `.perm-backup-` prefix
-4. **Interactive selection**: Choose which fixes to apply in interactive mode
-5. **System file protection**: Special handling for critical system files
-
-## 🐳 Docker Support
-
-The auditor can scan running Docker containers for permission issues:
-
-```bash
-# Scan all running containers
-perm-audit --docker
-
-# Combined scan: filesystem and Docker
-perm-audit /var/lib/docker -r --docker
-```
-
-Features:
-- Automatic Docker detection
-- UID/GID mapping analysis between host and containers
-- Container-specific permission recommendations
-- Support for user namespace mapping
 
 ## ⚡ Quick Start (30 seconds)
 
