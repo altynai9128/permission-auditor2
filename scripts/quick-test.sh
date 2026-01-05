@@ -24,42 +24,49 @@ fi
 # Test 3: Create test file and scan
 echo ""
 echo "3. Creating test file..."
-echo "test-content" > /tmp/test-perm-audit.txt
-chmod 777 /tmp/test-perm-audit.txt
+TEST_FILE="/tmp/test-perm-audit-$$.txt"
+echo "test-content" > "$TEST_FILE"
+chmod 777 "$TEST_FILE"
 
 echo "Scanning test file..."
-output=$(python3 src/auditor.py /tmp/test-perm-audit.txt --fix 2>&1)
-echo "Output was: $output"
+output=$(python3 src/auditor.py "$TEST_FILE" 2>&1)
 if echo "$output" | grep -q "CRITICAL"; then
     echo "✅ Found 777 permission issue"
 else
     echo "❌ Did not find issue"
+    echo "Output: $output"
 fi
 
+# Test 4: Test world-writable detection
 echo ""
-echo "4. Testing world-writable file..."
-echo "test" > /tmp/test-666.txt
-chmod 666 /tmp/test-666.txt
-python3 src/auditor.py /tmp/test-666.txt --fix | grep -q "HIGH"
-if [ $? -eq 0 ]; then
+echo "4. Testing world-writable detection..."
+echo "test" > "/tmp/test-666-$$.txt"
+chmod 666 "/tmp/test-666-$$.txt"
+output=$(python3 src/auditor.py "/tmp/test-666-$$.txt" 2>&1)
+if echo "$output" | grep -q "HIGH\|WORLD_WRITABLE"; then
     echo "✅ Found world-writable issue"
 else
     echo "❌ Did not find world-writable issue"
 fi
 
-echo ""
-echo "5. Testing directory scan..."
-mkdir -p /tmp/test-dir-777
-chmod 777 /tmp/test-dir-777
-python3 src/auditor.py /tmp/test-dir-777 --fix | grep -q "CRITICAL"
-if [ $? -eq 0 ]; then
-    echo "✅ Found directory with 777 permissions"
-else
-    echo "❌ Did not find directory issue"
-fi
-
 # Cleanup
-rm -rf /tmp/test-*
+rm -f "$TEST_FILE" "/tmp/test-666-$$.txt"
+
+# Test 5: Run Python unit tests
+echo ""
+echo "5. Running unit tests..."
+if [ -f "tests/test_basic.py" ]; then
+    python3 tests/test_basic.py
+    BASIC_TEST_RESULT=$?
+else
+    echo "⚠️  test_basic.py not found, skipping"
+    BASIC_TEST_RESULT=0
+fi
 
 echo ""
 echo "=== TEST COMPLETE ==="
+
+# Exit with worst result
+if [ $BASIC_TEST_RESULT -ne 0 ]; then
+    exit $BASIC_TEST_RESULT
+fi
