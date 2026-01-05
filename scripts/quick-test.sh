@@ -36,8 +36,30 @@ else
     echo "❌ Did not find issue"
 fi
 
+echo ""
+echo "4. Testing world-writable file..."
+echo "test" > /tmp/test-666.txt
+chmod 666 /tmp/test-666.txt
+python3 src/auditor.py /tmp/test-666.txt --fix | grep -q "HIGH"
+if [ $? -eq 0 ]; then
+    echo "✅ Found world-writable issue"
+else
+    echo "❌ Did not find world-writable issue"
+fi
+
+echo ""
+echo "5. Testing directory scan..."
+mkdir -p /tmp/test-dir-777
+chmod 777 /tmp/test-dir-777
+python3 src/auditor.py /tmp/test-dir-777 --fix | grep -q "CRITICAL"
+if [ $? -eq 0 ]; then
+    echo "✅ Found directory with 777 permissions"
+else
+    echo "❌ Did not find directory issue"
+fi
+
 # Cleanup
-rm -f /tmp/test-perm-audit.txt
+rm -rf /tmp/test-*
 
 echo ""
 echo "=== TEST COMPLETE ==="
