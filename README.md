@@ -1,37 +1,39 @@
 # Linux Permission Auditor
 
 ## Solution for Pain Point #9
-Prevents security holes caused by `chmod -R 777`.
+**Prevent security holes caused by `chmod -R 777`**
 
-## Features
-- ✅ **Scanning:** Finds 777 and world-writable permissions
-- ✅ **Recommendation:** Context-aware permission suggestions
-- ✅ **Safety:** Shows fix commands (does NOT apply automatically)
-- ✅ **Docker Support:** Container scanning and UID mapping analysis
-- ✅ **Multiple Formats:** Human-readable and JSON output
+## Complete Feature Set
 
-## Installation
-# Clone repository
-git clone <repository-url>
-cd permission-auditor
+### ✅ Core Security Scanning
+- **777 Detection**: Finds files/directories with full permissions
+- **World-Writable Detection**: Identifies files writable by any user
+- **Sensitive File Protection**: Checks /etc/shadow, /etc/sudoers, etc.
 
-# Install system-wide
-sudo bash scripts/install.sh
+### ✅ Intelligent Recommendations
+- **Context-Aware Suggestions**: Different fixes for scripts, configs, data files
+- **Risk Explanations**: Plain English descriptions of security risks
+- **Safe Commands**: Shows `chmod` commands (doesn't execute automatically)
 
-# Navigate to project folder
-cd /opt/permission-auditor-final
+### ✅ Docker & Container Support
+- **Container Scanning**: Checks running Docker containers
+- **UID/GID Mapping Analysis**: Detects permission mismatches
+- **Dockerfile Best Practices**: Suggests secure configurations
 
-# Basic scan of current directory
-python3 src/auditor.py .
+### ✅ Enterprise Features
+- **JSON Output**: Machine-readable reports for CI/CD
+- **Configuration Files**: Customizable scanning rules
+- **Comprehensive Logging**: Audit trail for compliance
 
-# Scan specific directory
-python3 src/auditor.py /path/to/scan
+## 🚀 Quick Start
 
-# Recursive scan with fix suggestions
-python3 src/auditor.py /path -r --fix
-
-# JSON output
-python3 src/auditor.py /path --json
-
-# Help
+### Installation
+```bash
+# Method 1: Direct use
+git clone https://github.com/altynai9128/permission-auditor2.git
+cd permission-auditor2
 python3 src/auditor.py --help
+
+# Method 2: System installation
+sudo bash scripts/install.sh
+perm-audit --help
