@@ -29,7 +29,38 @@ from pathlib import Path
 
 VERSION = "1.0.0"
 AUTHOR = "Security Team"
+import json
+from pathlib import Path
 
+def load_config(config_path=None):
+    """Load configuration from JSON file."""
+    default_config = {
+        "settings": {
+            "default_scan_path": ".",
+            "recursive_scan": True,
+            "max_depth": 8,
+            "exclude_patterns": EXCLUDE_PATHS,
+            "safe_permissions": {
+                "directories": "755",
+                "regular_files": "644",
+                "executable_files": "750",
+                "sensitive_files": "600"
+            }
+        }
+    }
+    
+    if config_path and Path(config_path).exists():
+        try:
+            with open(config_path, 'r') as f:
+                user_config = json.load(f)
+                # Merge with default config
+                if 'permission_auditor' in user_config:
+                    return user_config['permission_auditor']
+        except Exception as e:
+            print(f"{Colors.YELLOW}[!] Config error: {e}, using defaults{Colors.END}")
+    
+    return default_config
+    
 # ANSI color codes for terminal output
 class Colors:
     RED = '\033[91m'
