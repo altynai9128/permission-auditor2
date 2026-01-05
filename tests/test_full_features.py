@@ -170,19 +170,19 @@ def test_requirement_3_smart_permission_suggestions():
     
     test_cases = [
         {
-            'name': 'Executable script in /usr/local/bin',
+            'name': 'Script file with .sh extension',
             'finding': {
-                'path': '/usr/local/bin/myapp',
+                'path': '/home/user/myscript.sh',
                 'permissions': '777',
                 'issue': 'FULL_777',
                 'severity': 'CRITICAL',
                 'is_directory': False,
-                'owner': 'root',
-                'group': 'root',
-                'uid': 0,
-                'gid': 0
+                'owner': 'user',
+                'group': 'user',
+                'uid': 1000,
+                'gid': 1000
             },
-            'expected_recommendation': '750'  # Executable
+            'expected_recommendation': '750'  # Executable script
         },
         {
             'name': 'Web directory',
