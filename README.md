@@ -5,7 +5,8 @@
 
 ## 🎯 The Problem
 
-System administrators and developers often "fix" permission issues with the dangerous `chmod -R 777` command, creating massive security vulnerabilities. This tool helps identify and safely fix such problems.
+System administrators and developers often "fix" permission issues with the dangerous `chmod -R 777` command, creating massive security vulnerabilities.
+This tool helps identify and safely fix such problems.
 
 ## ✨ Features
 
