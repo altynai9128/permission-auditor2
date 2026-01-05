@@ -91,80 +91,262 @@ SPECIAL_FILES = {
 # SINGLE COMMAND FIX FUNCTIONS (NEW)
 # ============================================================================
 
-def apply_single_fix(finding, dry_run=True):
+def apply_single_fix(finding, dry_run=True, backup=True):
     """
     Apply a single fix safely with dry-run mode.
     Returns command and status.
-    """
-    fix = suggest_safe_permissions(finding)
     
+    Args:
+        finding: Dictionary with file/finding details
+        dry_run: If True, only show command, don't execute
+        backup: If True, create backup before changing permissions
+    
+    Returns:
+        Dictionary with results
+    """
+    # Generate fix recommendation
+    fix = suggest_safe_permissions(finding)
+    path = finding['path']
+    
+    # Validate path exists
+    if not os.path.exists(path):
+        return {
+            'status': 'ERROR',
+            'command': fix['command'],
+            'message': f'Path does not exist: {path}',
+            'safe_to_apply': False
+        }
+    
+    # Check if it's a system critical file
+    if path in ['/etc/shadow', '/etc/gshadow', '/etc/sudoers', '/etc/passwd']:
+        return {
+            'status': 'WARNING',
+            'command': fix['command'],
+            'message': f'System critical file: {path}. Manual intervention recommended.',
+            'safe_to_apply': False
+        }
+    
+    # Check current permissions match what we expect
+    try:
+        current_perms = oct(os.stat(path).st_mode & 0o777)[-3:]
+        if current_perms != finding.get('permissions_octal', finding.get('permissions', '000')):
+            return {
+                'status': 'WARNING',
+                'command': fix['command'],
+                'message': f'Permissions changed since scan: {current_perms} != {finding.get("permissions", "unknown")}',
+                'safe_to_apply': False
+            }
+    except OSError:
+        return {
+            'status': 'ERROR',
+            'command': fix['command'],
+            'message': f'Cannot access file: {path}',
+            'safe_to_apply': False
+        }
+    
+    # Build the actual command
+    actual_command = fix['command']
+    needs_sudo = 'sudo' in actual_command
+    
+    # Check permissions for execution
+    if needs_sudo and os.geteuid() != 0:
+        if dry_run:
+            return {
+                'status': 'DRY_RUN_NEEDS_SUDO',
+                'command': actual_command,
+                'message': f'Would need sudo to execute. Command: {actual_command}',
+                'safe_to_apply': True,
+                'needs_sudo': True
+            }
+        else:
+            return {
+                'status': 'NEEDS_SUDO',
+                'command': actual_command,
+                'message': 'Need sudo privileges to execute. Run with sudo or as root.',
+                'safe_to_apply': True,
+                'needs_sudo': True
+            }
+    
+    # If we're root and command has sudo, remove it
+    if needs_sudo and os.geteuid() == 0:
+        actual_command = actual_command.replace('sudo ', '')
+    
+    # For dry run, just return the command
     if dry_run:
         return {
             'status': 'DRY_RUN',
-            'command': fix['command'],
-            'message': 'This would execute: ' + fix['command'],
-            'actual_command': fix['command'].replace('sudo ', '') if 'sudo' in fix['command'] else fix['command']
+            'command': actual_command,
+            'message': f'This would execute: {actual_command}',
+            'safe_to_apply': True,
+            'backup_created': False if dry_run else backup
         }
-    else:
-        # Actually apply the fix
-        try:
-            # Check if sudo is needed but not available
-            actual_cmd = fix['command']
-            needs_sudo = 'sudo' in actual_cmd
-            
-            if needs_sudo and os.geteuid() != 0:
-                return {
-                    'status': 'NEEDS_SUDO',
-                    'command': fix['command'],
-                    'message': 'Need sudo privileges to execute. Run with sudo or as root.'
-                }
-            
-            # Remove sudo for execution if we're already root
-            if needs_sudo and os.geteuid() == 0:
-                actual_cmd = actual_cmd.replace('sudo ', '')
-            
-            result = subprocess.run(
-                actual_cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+    
+    # ===== ACTUAL EXECUTION =====
+    backup_path = None
+    
+    try:
+        # Create backup if requested
+        if backup and os.path.isfile(path):
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_path = f"{path}.perm-backup-{timestamp}"
+            try:
+                import shutil
+                shutil.copy2(path, backup_path)
+                # Set safe permissions on backup
+                os.chmod(backup_path, 0o600)
+                backup_created = True
+            except Exception as e:
+                backup_created = False
+                backup_error = str(e)
+        else:
+            backup_created = False
+        
+        # Execute the permission change
+        result = subprocess.run(
+            actual_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        # Verify the change was successful
+        if result.returncode == 0:
+            new_perms = oct(os.stat(path).st_mode & 0o777)[-3:]
             
             return {
                 'status': 'APPLIED',
-                'command': fix['command'],
+                'command': actual_command,
                 'exit_code': result.returncode,
                 'output': result.stdout,
-                'error': result.stderr
+                'error': result.stderr,
+                'old_permissions': finding.get('permissions', 'unknown'),
+                'new_permissions': new_perms,
+                'backup_created': backup_created,
+                'backup_path': backup_path if backup_created else None,
+                'verified': new_perms == fix['recommended'],
+                'message': f'Successfully changed permissions from {finding.get("permissions", "unknown")} to {new_perms}'
+            }
+        else:
+            # Command failed
+            error_msg = result.stderr.strip() or "Unknown error"
+            
+            # Attempt to restore from backup if we created one
+            if backup_created and backup_path and os.path.exists(backup_path):
+                try:
+                    shutil.copy2(backup_path, path)
+                    restore_msg = f" Restored from backup: {backup_path}"
+                except Exception as restore_error:
+                    restore_msg = f" Failed to restore from backup: {restore_error}"
+            else:
+                restore_msg = ""
+            
+            return {
+                'status': 'FAILED',
+                'command': actual_command,
+                'exit_code': result.returncode,
+                'output': result.stdout,
+                'error': error_msg,
+                'backup_created': backup_created,
+                'restore_attempted': backup_created,
+                'message': f'Failed to apply fix: {error_msg}{restore_msg}'
             }
             
-        except subprocess.TimeoutExpired:
-            return {
-                'status': 'TIMEOUT',
-                'command': fix['command'],
-                'message': 'Command timed out after 30 seconds'
-            }
-        except Exception as e:
-            return {
-                'status': 'ERROR',
-                'command': fix['command'],
-                'message': f'Error applying fix: {str(e)}'
-            }
+    except subprocess.TimeoutExpired:
+        return {
+            'status': 'TIMEOUT',
+            'command': actual_command,
+            'message': 'Command timed out after 30 seconds',
+            'backup_created': backup_created if 'backup_created' in locals() else False
+        }
+    except Exception as e:
+        return {
+            'status': 'ERROR',
+            'command': actual_command,
+            'message': f'Error applying fix: {str(e)}',
+            'backup_created': backup_created if 'backup_created' in locals() else False
+        }
 
-def apply_selected_fixes(findings, indices, dry_run=True):
+def apply_bulk_fixes(findings, dry_run=True, backup=True, interactive=False):
     """
-    Apply multiple fixes based on selection.
-    """
-    results = []
-    for idx in indices:
-        if 0 <= idx < len(findings):
-            result = apply_single_fix(findings[idx], dry_run)
-            result['finding_index'] = idx
-            result['path'] = findings[idx]['path']
-            results.append(result)
+    Apply multiple fixes safely.
     
-    return results
+    Args:
+        findings: List of finding dictionaries
+        dry_run: If True, only show what would be done
+        backup: If True, create backups before changing
+        interactive: If True, ask for confirmation for each fix
+    
+    Returns:
+        Dictionary with summary results
+    """
+    if not findings:
+        return {
+            'total': 0,
+            'applied': 0,
+            'failed': 0,
+            'skipped': 0,
+            'results': []
+        }
+    
+    results = []
+    applied = 0
+    failed = 0
+    skipped = 0
+    
+    print(f"{Colors.BLUE}[*] Applying {len(findings)} fixes...{Colors.END}")
+    
+    for i, finding in enumerate(findings, 1):
+        path = finding['path']
+        severity = finding['severity']
+        
+        if interactive:
+            print(f"\n{i}. {path} ({severity} - {finding['permissions']})")
+            fix = suggest_safe_permissions(finding)
+            print(f"   Fix: {fix['command']}")
+            print(f"   Reason: {fix['reason']}")
+            
+            if not dry_run:
+                response = input(f"   Apply this fix? (y/N/skip): ").strip().lower()
+                if response not in ['y', 'yes']:
+                    print(f"   {Colors.YELLOW}Skipped{Colors.END}")
+                    results.append({
+                        'status': 'SKIPPED',
+                        'path': path,
+                        'message': 'User skipped during interactive mode'
+                    })
+                    skipped += 1
+                    continue
+        
+        # Apply the fix
+        result = apply_single_fix(finding, dry_run=dry_run, backup=backup)
+        result['path'] = path
+        result['severity'] = severity
+        results.append(result)
+        
+        # Update counters
+        if result['status'] == 'APPLIED':
+            applied += 1
+            if not dry_run:
+                print(f"{Colors.GREEN}✅ {i}/{len(findings)} Applied: {path}{Colors.END}")
+        elif result['status'] in ['FAILED', 'ERROR', 'TIMEOUT']:
+            failed += 1
+            if not dry_run:
+                print(f"{Colors.RED}❌ {i}/{len(findings)} Failed: {path}{Colors.END}")
+                if result.get('message'):
+                    print(f"   Reason: {result['message']}")
+        elif result['status'] == 'DRY_RUN':
+            print(f"{Colors.CYAN}📋 {i}/{len(findings)} Would apply: {path}{Colors.END}")
+            print(f"   Command: {result['command']}")
+    
+    return {
+        'total': len(findings),
+        'applied': applied,
+        'failed': failed,
+        'skipped': skipped,
+        'dry_run': dry_run,
+        'results': results
+    }
 
 def interactive_fix_mode(findings):
     """
@@ -414,33 +596,81 @@ def suggest_safe_permissions(finding: dict) -> dict:
                 'recommended': recommended,
                 'reason': reason,
                 'command': f"sudo chmod {recommended} '{path}'",
-                'risk_reduction': 'CRITICAL/HIGH → LOW'
+                'risk_reduction': 'CRITICAL/HIGH → LOW',
+                'needs_sudo': True
             }
     
-    # General recommendations
+    # Get owner and group for chown command if needed
+    owner = finding.get('owner', '')
+    group = finding.get('group', '')
+    
+    # General recommendations with ownership consideration
     if is_dir:
-        recommended = '755'
-        reason = 'Directory: owner can read/write/execute, group/others can read/execute'
+        if path.startswith('/home/') or '/home/' in path:
+            # Home directories
+            recommended = '750'
+            reason = 'Home directory: owner full access, group can list, others no access'
+            chown_cmd = f"sudo chown {owner}:{group} '{path}' && sudo chmod {recommended} '{path}'" if owner and group else f"sudo chmod {recommended} '{path}'"
+        else:
+            # System directories
+            recommended = '755'
+            reason = 'Directory: owner can read/write/execute, group/others can read/execute'
+            chown_cmd = f"sudo chmod {recommended} '{path}'"
     else:
-        # Check if file is executable
+        # Check file type and content
         is_executable = False
-        try:
-            if os.access(path, os.X_OK):
-                is_executable = True
-            else:
-                # Check by file extension
-                ext = Path(path).suffix.lower()
-                if ext in ['.sh', '.py', '.pl', '.rb', '.exe', '.bin']:
-                    is_executable = True
-        except:
-            pass
+        is_config = False
+        is_log = False
         
+        # Check by file extension and path
+        ext = Path(path).suffix.lower()
+        if ext in ['.sh', '.py', '.pl', '.rb', '.exe', '.bin', '']:
+            # Check if file has execute bit or is script
+            try:
+                with open(path, 'r') as f:
+                    first_line = f.readline()
+                    if first_line.startswith('#!') or os.access(path, os.X_OK):
+                        is_executable = True
+            except:
+                pass
+        
+        # Check common patterns
+        if 'config' in path.lower() or 'conf' in path.lower() or ext in ['.conf', '.cfg', '.ini', '.yml', '.yaml', '.json']:
+            is_config = True
+        if 'log' in path.lower() or ext in ['.log', '.txt']:
+            is_log = True
+        
+        # Determine recommendation
         if is_executable:
             recommended = '750'
             reason = 'Executable script: owner can read/write/execute, group can read/execute, others have no access'
+        elif is_config:
+            recommended = '640'
+            reason = 'Configuration file: owner can read/write, group can read, others have no access'
+        elif is_log:
+            recommended = '640'
+            reason = 'Log file: owner can read/write, group can read (for log rotation), others have no access'
         else:
             recommended = '644'
             reason = 'Regular file: owner can read/write, group/others can read only'
+        
+        chown_cmd = f"sudo chmod {recommended} '{path}'"
+    
+    # Determine if sudo is needed (check current user vs file owner)
+    needs_sudo = False
+    try:
+        current_uid = os.geteuid()
+        file_uid = finding.get('uid', 0)
+        if current_uid != 0 and current_uid != file_uid:
+            needs_sudo = True
+    except:
+        needs_sudo = True
+    
+    # Build command with or without sudo
+    if needs_sudo:
+        command = f"sudo chmod {recommended} '{path}'"
+    else:
+        command = f"chmod {recommended} '{path}'"
     
     # Determine risk reduction
     if finding['issue'] == 'FULL_777':
@@ -453,8 +683,10 @@ def suggest_safe_permissions(finding: dict) -> dict:
     return {
         'recommended': recommended,
         'reason': reason,
-        'command': f"sudo chmod {recommended} '{path}'",
-        'risk_reduction': risk_reduction
+        'command': command,
+        'risk_reduction': risk_reduction,
+        'needs_sudo': needs_sudo,
+        'chown_command': chown_cmd if 'chown_cmd' in locals() else None
     }
 
 # ============================================================================
@@ -826,49 +1058,87 @@ def main():
         docker_findings = scan_docker_containers()
     
     # Handle --apply option
-    if args.apply:
-        if not findings and not docker_findings:
-            print(f"{Colors.GREEN}[+] No issues found, nothing to apply.{Colors.END}")
+ if args.apply:
+    if not findings and not docker_findings:
+        print(f"{Colors.GREEN}[+] No issues found, nothing to apply.{Colors.END}")
+        sys.exit(0)
+    
+    print(f"{Colors.YELLOW}{'!'*80}{Colors.END}")
+    print(f"{Colors.RED}{Colors.BOLD}⚠️  WARNING: PERMISSION MODIFICATION MODE{Colors.END}")
+    print(f"{Colors.YELLOW}This will change file permissions on your system.{Colors.END}")
+    print(f"{Colors.YELLOW}{'!'*80}{Colors.END}")
+    
+    all_findings = findings + docker_findings
+    
+    # Show summary
+    print(f"\n{Colors.BLUE}[*] Found {len(all_findings)} issues to fix:{Colors.END}")
+    for i, finding in enumerate(all_findings, 1):
+        print(f"  {i}. {finding['path']} ({finding['severity']} - {finding['permissions']})")
+    
+    # Get user confirmation
+    if not args.interactive:
+        print(f"\n{Colors.YELLOW}You are about to modify {len(all_findings)} files.{Colors.END}")
+        print(f"{Colors.YELLOW}Backups will be created for regular files.{Colors.END}")
+        confirm = input(f"\nType 'APPLY' to continue, or anything else to cancel: ").strip()
+        if confirm != 'APPLY':
+            print(f"{Colors.YELLOW}[!] Application cancelled.{Colors.END}")
             sys.exit(0)
+    
+    # Apply fixes
+    if args.interactive:
+        # Interactive mode - fix one by one
+        print(f"\n{Colors.CYAN}[*] Interactive fix mode{Colors.END}")
+        print(f"{Colors.YELLOW}You will be asked for each file individually.{Colors.END}")
         
-        print(f"{Colors.YELLOW}[!] APPLY MODE: This will modify file permissions!{Colors.END}")
-        print(f"{Colors.YELLOW}    Review changes carefully before proceeding.{Colors.END}")
-        
-        all_findings = findings + docker_findings
-        
-        if args.interactive:
-            indices = interactive_fix_mode(all_findings)
-        else:
-            # Apply all fixes
-            confirm = input(f"\nApply all {len(all_findings)} fixes? (yes/NO): ").strip().lower()
-            if confirm != 'yes':
-                print(f"{Colors.YELLOW}[!] Application cancelled.{Colors.END}")
-                sys.exit(0)
-            indices = list(range(len(all_findings)))
-        
-        if indices:
-            print(f"\n{Colors.BLUE}[*] Applying {len(indices)} fixes...{Colors.END}")
-            results = apply_selected_fixes(all_findings, indices, dry_run=False)
-            
-            # Show results
-            success = 0
-            failed = 0
-            
-            for result in results:
-                if result['status'] == 'APPLIED':
-                    print(f"{Colors.GREEN}✅ Applied: {result['path']}{Colors.END}")
-                    success += 1
-                else:
-                    print(f"{Colors.RED}❌ Failed ({result['status']}): {result['path']}{Colors.END}")
-                    if result.get('message'):
-                        print(f"   {result['message']}")
-                    failed += 1
-            
-            print(f"\n{Colors.BLUE}[*] Summary: {success} successful, {failed} failed{Colors.END}")
-            sys.exit(0 if failed == 0 else 1)
-        else:
-            print(f"{Colors.YELLOW}[!] No fixes selected.{Colors.END}")
-            sys.exit(0)
+        results = apply_bulk_fixes(
+            all_findings, 
+            dry_run=False, 
+            backup=True, 
+            interactive=True
+        )
+    else:
+        # Batch mode - apply all
+        print(f"\n{Colors.BLUE}[*] Applying all fixes in batch mode...{Colors.END}")
+        results = apply_bulk_fixes(
+            all_findings, 
+            dry_run=False, 
+            backup=True, 
+            interactive=False
+        )
+    
+    # Show results
+    print(f"\n{Colors.CYAN}{'='*60}{Colors.END}")
+    print(f"{Colors.BOLD}📊 FIX APPLICATION RESULTS:{Colors.END}")
+    print(f"{Colors.CYAN}{'='*60}{Colors.END}")
+    
+    print(f"Total files: {results['total']}")
+    print(f"Successfully applied: {Colors.GREEN}{results['applied']}{Colors.END}")
+    print(f"Failed: {Colors.RED}{results['failed']}{Colors.END}")
+    print(f"Skipped: {Colors.YELLOW}{results['skipped']}{Colors.END}")
+    
+    # Show backup information
+    backups = [r for r in results['results'] if r.get('backup_created')]
+    if backups:
+        print(f"\n{Colors.GREEN}✅ Backups created for {len(backups)} files:{Colors.END}")
+        for backup in backups[:5]:  # Show first 5 backups
+            print(f"  • {backup['path']} -> {backup.get('backup_path', 'unknown')}")
+        if len(backups) > 5:
+            print(f"  ... and {len(backups) - 5} more")
+    
+    # Show failed fixes
+    failures = [r for r in results['results'] if r['status'] in ['FAILED', 'ERROR']]
+    if failures:
+        print(f"\n{Colors.RED}❌ Failed fixes:{Colors.END}")
+        for fail in failures:
+            print(f"  • {fail['path']}: {fail.get('message', 'Unknown error')}")
+    
+    # Exit with appropriate code
+    if results['failed'] > 0:
+        print(f"\n{Colors.YELLOW}[!] Some fixes failed. Check output above.{Colors.END}")
+        sys.exit(1)
+    else:
+        print(f"\n{Colors.GREEN}[+] All fixes applied successfully!{Colors.END}")
+        sys.exit(0)
     
     # Generate report
     if args.json:
