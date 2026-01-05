@@ -634,28 +634,55 @@ def suggest_safe_permissions(finding: dict) -> dict:
         is_config = False
         is_log = False
         
-        # Check by file extension and path
+        # Check by file extension and path patterns
+        filename = os.path.basename(path).lower()
+        dir_path = os.path.dirname(path).lower()
+        
+        # Common binary directories
+        binary_dirs = ['/bin', '/sbin', '/usr/bin', '/usr/sbin', '/usr/local/bin', '/usr/local/sbin']
+        
+        # Check if file is in a binary directory
+        if any(dir_path.startswith(binary_dir) for binary_dir in binary_dirs):
+            is_executable = True
+        
+        # Check by file extension
         ext = Path(path).suffix.lower()
-        if ext in ['.sh', '.py', '.pl', '.rb', '.exe', '.bin', '']:
-            # Check if file has execute bit or is script
+        if not is_executable:
+            if ext in ['.sh', '.py', '.pl', '.rb', '.exe', '.bin', '.run', '']:
+                is_executable = True
+            elif ext in ['.conf', '.cfg', '.ini', '.yml', '.yaml', '.json', '.xml', '.properties']:
+                is_config = True
+            elif ext in ['.log', '.txt', '.out', '.err']:
+                is_log = True
+        
+        # Check by filename patterns
+        if not any([is_executable, is_config, is_log]):
+            if any(pattern in filename for pattern in ['script', 'run', 'start', 'stop', 'install', 'update']):
+                is_executable = True
+            elif any(pattern in filename for pattern in ['config', 'conf', 'settings', '.conf', '.cfg']):
+                is_config = True
+            elif any(pattern in filename for pattern in ['log', 'debug', 'error', 'trace']):
+                is_log = True
+        
+        # If file exists, check actual content
+        if os.path.exists(path) and not is_executable:
             try:
-                with open(path, 'r') as f:
-                    first_line = f.readline()
-                    if first_line.startswith('#!') or os.access(path, os.X_OK):
-                        is_executable = True
+                # Check if file is executable
+                if os.access(path, os.X_OK):
+                    is_executable = True
+                else:
+                    # Check for shebang
+                    with open(path, 'rb') as f:
+                        first_bytes = f.read(2)
+                        if first_bytes == b'#!':
+                            is_executable = True
             except:
                 pass
-        
-        # Check common patterns
-        if 'config' in path.lower() or 'conf' in path.lower() or ext in ['.conf', '.cfg', '.ini', '.yml', '.yaml', '.json']:
-            is_config = True
-        if 'log' in path.lower() or ext in ['.log', '.txt']:
-            is_log = True
         
         # Determine recommendation
         if is_executable:
             recommended = '750'
-            reason = 'Executable script: owner can read/write/execute, group can read/execute, others have no access'
+            reason = 'Executable script/binary: owner can read/write/execute, group can read/execute, others have no access'
         elif is_config:
             recommended = '640'
             reason = 'Configuration file: owner can read/write, group can read, others have no access'
