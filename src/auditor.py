@@ -9,6 +9,7 @@ Core features:
 3. Suggest safe permissions based on file type
 4. Generate fix commands (safe, not automatic)
 5. Docker container support with UID mapping analysis
+6. Single command safe fixes with --apply option
 """
 
 import os
@@ -54,6 +55,117 @@ SPECIAL_FILES = {
     '/etc/sudoers': ('440', 'Sudo configuration - root only'),
     '/etc/passwd': ('644', 'User database - readable by all'),
 }
+
+# ============================================================================
+# SINGLE COMMAND FIX FUNCTIONS (NEW)
+# ============================================================================
+
+def apply_single_fix(finding, dry_run=True):
+    """
+    Apply a single fix safely with dry-run mode.
+    Returns command and status.
+    """
+    fix = suggest_safe_permissions(finding)
+    
+    if dry_run:
+        return {
+            'status': 'DRY_RUN',
+            'command': fix['command'],
+            'message': 'This would execute: ' + fix['command'],
+            'actual_command': fix['command'].replace('sudo ', '') if 'sudo' in fix['command'] else fix['command']
+        }
+    else:
+        # Actually apply the fix
+        try:
+            # Check if sudo is needed but not available
+            actual_cmd = fix['command']
+            needs_sudo = 'sudo' in actual_cmd
+            
+            if needs_sudo and os.geteuid() != 0:
+                return {
+                    'status': 'NEEDS_SUDO',
+                    'command': fix['command'],
+                    'message': 'Need sudo privileges to execute. Run with sudo or as root.'
+                }
+            
+            # Remove sudo for execution if we're already root
+            if needs_sudo and os.geteuid() == 0:
+                actual_cmd = actual_cmd.replace('sudo ', '')
+            
+            result = subprocess.run(
+                actual_cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            return {
+                'status': 'APPLIED',
+                'command': fix['command'],
+                'exit_code': result.returncode,
+                'output': result.stdout,
+                'error': result.stderr
+            }
+            
+        except subprocess.TimeoutExpired:
+            return {
+                'status': 'TIMEOUT',
+                'command': fix['command'],
+                'message': 'Command timed out after 30 seconds'
+            }
+        except Exception as e:
+            return {
+                'status': 'ERROR',
+                'command': fix['command'],
+                'message': f'Error applying fix: {str(e)}'
+            }
+
+def apply_selected_fixes(findings, indices, dry_run=True):
+    """
+    Apply multiple fixes based on selection.
+    """
+    results = []
+    for idx in indices:
+        if 0 <= idx < len(findings):
+            result = apply_single_fix(findings[idx], dry_run)
+            result['finding_index'] = idx
+            result['path'] = findings[idx]['path']
+            results.append(result)
+    
+    return results
+
+def interactive_fix_mode(findings):
+    """
+    Interactive mode to apply fixes one by one.
+    """
+    print(f"{Colors.CYAN}\n🛠️  INTERACTIVE FIX MODE{Colors.END}")
+    print(f"{Colors.YELLOW}You can apply fixes individually.{Colors.END}\n")
+    
+    for i, finding in enumerate(findings, 1):
+        print(f"{i}. {finding['path']} ({finding['permissions']})")
+    
+    print("\nEnter numbers to fix (comma-separated), 'a' for all, or 'q' to quit:")
+    
+    while True:
+        try:
+            choice = input("> ").strip()
+            if choice.lower() == "q":
+                return []
+            elif choice.lower() == "a":
+                return list(range(len(findings)))
+            else:
+                indices = [int(x.strip()) - 1 for x in choice.split(",") if x.strip().isdigit()]
+                valid_indices = [i for i in indices if 0 <= i < len(findings)]
+                if valid_indices:
+                    return valid_indices
+                else:
+                    print("Invalid selection. Try again.")
+        except ValueError:
+            print("Please enter numbers separated by commas.")
+        except KeyboardInterrupt:
+            print("\nCancelled.")
+            return []
 
 # ============================================================================
 # CORE PERMISSION CHECKING FUNCTIONS
@@ -371,6 +483,62 @@ def scan_docker_containers():
     
     return findings
 
+def analyze_container_uid_mapping(container_name, host_uid):
+    """
+    Complete UID/GID mapping analysis between host and container.
+    Returns recommendations for secure Docker user mapping.
+    """
+    recommendations = []
+    
+    try:
+        # Get user information in container
+        cmd = f"docker exec {container_name} getent passwd {host_uid} 2>/dev/null || echo 'not found'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        
+        if "not found" in result.stdout:
+            recommendations.append({
+                'issue': 'UID_NOT_IN_CONTAINER',
+                'severity': 'HIGH',
+                'message': f'UID {host_uid} does not exist inside container {container_name}',
+                'fix': f'Add user in Dockerfile: RUN useradd -u {host_uid} -g {host_uid} appuser'
+            })
+        
+        # Check subuid/subgid mapping
+        if os.path.exists('/etc/subuid'):
+            with open('/etc/subuid', 'r') as f:
+                for line in f:
+                    if str(host_uid) in line:
+                        recommendations.append({
+                            'issue': 'USER_NAMESPACE_MAPPED',
+                            'severity': 'INFO',
+                            'message': f'UID {host_uid} has user namespace mapping',
+                            'fix': 'Docker uses user namespace for isolation'
+                        })
+                        break
+        
+        # Check container user
+        cmd = f"docker inspect {container_name} --format='{{{{.Config.User}}}}'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        container_user = result.stdout.strip()
+        
+        if container_user and container_user != str(host_uid):
+            recommendations.append({
+                'issue': 'CONTAINER_USER_MISMATCH',
+                'severity': 'MEDIUM',
+                'message': f'Container runs as {container_user}, but files belong to UID {host_uid}',
+                'fix': f'Run container: docker run --user {host_uid}:{host_uid} ...'
+            })
+    
+    except Exception as e:
+        recommendations.append({
+            'issue': 'MAPPING_ANALYSIS_ERROR',
+            'severity': 'WARNING',
+            'message': f'UID mapping analysis error: {str(e)}',
+            'fix': 'Check user mapping manually'
+        })
+    
+    return recommendations
+
 def analyze_uid_mapping(finding: dict) -> str:
     """
     Analyze UID/GID mapping for Docker containers.
@@ -542,7 +710,7 @@ def generate_json_report(findings: list, docker_findings: list = None) -> str:
     return json.dumps(report, indent=2, ensure_ascii=False)
 
 # ============================================================================
-# MAIN FUNCTION
+# MAIN FUNCTION WITH --apply SUPPORT
 # ============================================================================
 
 def print_banner():
@@ -563,7 +731,12 @@ def main():
     """Main function - parse arguments and run audit."""
     parser = argparse.ArgumentParser(
         description='Linux Permission Auditor - Find and fix dangerous permissions',
-        epilog='Example: python auditor.py /var/www -r --fix --docker'
+        epilog='''Examples:
+  python auditor.py /var/www                    # Basic scan
+  python auditor.py /home -r --fix              # Recursive with fixes
+  python auditor.py /path --apply               # Apply fixes (careful!)
+  python auditor.py --docker --interactive      # Interactive Docker mode
+  python auditor.py /etc --json                 # JSON output'''
     )
     
     parser.add_argument('path', nargs='?', default='.',
@@ -574,6 +747,10 @@ def main():
                        help='Scan Docker containers')
     parser.add_argument('-f', '--fix', action='store_true',
                        help='Show fix commands (does not apply automatically)')
+    parser.add_argument('-a', '--apply', action='store_true',
+                       help='Apply fixes (use with caution!)')
+    parser.add_argument('-i', '--interactive', action='store_true',
+                       help='Interactive fix selection mode')
     parser.add_argument('-j', '--json', action='store_true',
                        help='Output in JSON format')
     parser.add_argument('-o', '--output',
@@ -593,6 +770,8 @@ def main():
     print(f"    Target: {args.path}")
     print(f"    Recursive: {args.recursive}")
     print(f"    Docker scan: {args.docker}")
+    print(f"    Apply fixes: {args.apply}")
+    print(f"    Interactive: {args.interactive}")
     print(f"")
     
     # Scan filesystem
@@ -602,6 +781,51 @@ def main():
     docker_findings = []
     if args.docker:
         docker_findings = scan_docker_containers()
+    
+    # Handle --apply option
+    if args.apply:
+        if not findings and not docker_findings:
+            print(f"{Colors.GREEN}[+] No issues found, nothing to apply.{Colors.END}")
+            sys.exit(0)
+        
+        print(f"{Colors.YELLOW}[!] APPLY MODE: This will modify file permissions!{Colors.END}")
+        print(f"{Colors.YELLOW}    Review changes carefully before proceeding.{Colors.END}")
+        
+        all_findings = findings + docker_findings
+        
+        if args.interactive:
+            indices = interactive_fix_mode(all_findings)
+        else:
+            # Apply all fixes
+            confirm = input(f"\nApply all {len(all_findings)} fixes? (yes/NO): ").strip().lower()
+            if confirm != 'yes':
+                print(f"{Colors.YELLOW}[!] Application cancelled.{Colors.END}")
+                sys.exit(0)
+            indices = list(range(len(all_findings)))
+        
+        if indices:
+            print(f"\n{Colors.BLUE}[*] Applying {len(indices)} fixes...{Colors.END}")
+            results = apply_selected_fixes(all_findings, indices, dry_run=False)
+            
+            # Show results
+            success = 0
+            failed = 0
+            
+            for result in results:
+                if result['status'] == 'APPLIED':
+                    print(f"{Colors.GREEN}✅ Applied: {result['path']}{Colors.END}")
+                    success += 1
+                else:
+                    print(f"{Colors.RED}❌ Failed ({result['status']}): {result['path']}{Colors.END}")
+                    if result.get('message'):
+                        print(f"   {result['message']}")
+                    failed += 1
+            
+            print(f"\n{Colors.BLUE}[*] Summary: {success} successful, {failed} failed{Colors.END}")
+            sys.exit(0 if failed == 0 else 1)
+        else:
+            print(f"{Colors.YELLOW}[!] No fixes selected.{Colors.END}")
+            sys.exit(0)
     
     # Generate report
     if args.json:
@@ -620,6 +844,26 @@ def main():
             print(report)
     else:
         print(report)
+    
+    # Interactive mode without --apply
+    if args.interactive and not args.apply and (findings or docker_findings):
+        print(f"\n{Colors.CYAN}[*] Entering interactive mode...{Colors.END}")
+        all_findings = findings + docker_findings
+        indices = interactive_fix_mode(all_findings)
+        
+        if indices:
+            print(f"\n{Colors.BLUE}[*] Preview of {len(indices)} fixes (dry run):{Colors.END}")
+            results = apply_selected_fixes(all_findings, indices, dry_run=True)
+            
+            for result in results:
+                print(f"\n{result['path']}:")
+                print(f"  Command: {result['command']}")
+                print(f"  Status: {result['status']}")
+                if result.get('message'):
+                    print(f"  Note: {result['message']}")
+            
+            print(f"\n{Colors.YELLOW}[!] To apply these fixes, run with --apply flag{Colors.END}")
+            print(f"    Example: python auditor.py {args.path} --apply --interactive")
     
     # Security warning for fix mode
     if args.fix and (findings or docker_findings):
