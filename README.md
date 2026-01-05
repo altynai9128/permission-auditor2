@@ -24,9 +24,9 @@ This tool helps identify and safely fix such problems.
 
 ## Command Line Options
 
-usage: perm-audit [-h] [--version] [-r] [-d] [-f] [-a] [-i] [-j] [-o OUTPUT] [path]
+- usage: perm-audit [-h] [--version] [-r] [-d] [-f] [-a] [-i] [-j] [-o OUTPUT] [path]
 
-Linux Permission Auditor v1.0.0 - Find and fix dangerous permissions
+- Linux Permission Auditor v1.0.0 - Find and fix dangerous permissions
 
 positional arguments:
   path                  Path to scan (default: current directory)
@@ -60,10 +60,10 @@ For each issue, you'll get:
 ## ⚡ Quick Start (30 seconds)
 
 # Install
-git clone https://github.com/yourusername/permission-auditor2.git
-cd permission-auditor2
-sudo cp src/auditor.py /usr/local/bin/perm-audit
-sudo chmod +x /usr/local/bin/perm-audit
+- git clone https://github.com/yourusername/permission-auditor2.git
+- cd permission-auditor2
+- sudo cp src/auditor.py /usr/local/bin/perm-audit
+- sudo chmod +x /usr/local/bin/perm-audit
 
 # Basic scan
 perm-audit /var/www
