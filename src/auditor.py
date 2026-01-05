@@ -347,7 +347,19 @@ def apply_bulk_fixes(findings, dry_run=True, backup=True, interactive=False):
         'dry_run': dry_run,
         'results': results
     }
-
+def apply_selected_fixes(findings, indices, dry_run=True):
+    """
+    Apply multiple fixes based on selection.
+    """
+    results = []
+    for idx in indices:
+        if 0 <= idx < len(findings):
+            result = apply_single_fix(findings[idx], dry_run)
+            result['finding_index'] = idx
+            result['path'] = findings[idx]['path']
+            results.append(result)
+    
+    return results
 def interactive_fix_mode(findings):
     """
     Interactive mode to apply fixes one by one.
@@ -1058,87 +1070,87 @@ def main():
         docker_findings = scan_docker_containers()
     
     # Handle --apply option
- if args.apply:
-    if not findings and not docker_findings:
-        print(f"{Colors.GREEN}[+] No issues found, nothing to apply.{Colors.END}")
-        sys.exit(0)
-    
-    print(f"{Colors.YELLOW}{'!'*80}{Colors.END}")
-    print(f"{Colors.RED}{Colors.BOLD}⚠️  WARNING: PERMISSION MODIFICATION MODE{Colors.END}")
-    print(f"{Colors.YELLOW}This will change file permissions on your system.{Colors.END}")
-    print(f"{Colors.YELLOW}{'!'*80}{Colors.END}")
-    
-    all_findings = findings + docker_findings
-    
-    # Show summary
-    print(f"\n{Colors.BLUE}[*] Found {len(all_findings)} issues to fix:{Colors.END}")
-    for i, finding in enumerate(all_findings, 1):
-        print(f"  {i}. {finding['path']} ({finding['severity']} - {finding['permissions']})")
-    
-    # Get user confirmation
-    if not args.interactive:
-        print(f"\n{Colors.YELLOW}You are about to modify {len(all_findings)} files.{Colors.END}")
-        print(f"{Colors.YELLOW}Backups will be created for regular files.{Colors.END}")
-        confirm = input(f"\nType 'APPLY' to continue, or anything else to cancel: ").strip()
-        if confirm != 'APPLY':
-            print(f"{Colors.YELLOW}[!] Application cancelled.{Colors.END}")
+    if args.apply:
+        if not findings and not docker_findings:
+            print(f"{Colors.GREEN}[+] No issues found, nothing to apply.{Colors.END}")
             sys.exit(0)
-    
-    # Apply fixes
-    if args.interactive:
-        # Interactive mode - fix one by one
-        print(f"\n{Colors.CYAN}[*] Interactive fix mode{Colors.END}")
-        print(f"{Colors.YELLOW}You will be asked for each file individually.{Colors.END}")
         
-        results = apply_bulk_fixes(
-            all_findings, 
-            dry_run=False, 
-            backup=True, 
-            interactive=True
-        )
-    else:
-        # Batch mode - apply all
-        print(f"\n{Colors.BLUE}[*] Applying all fixes in batch mode...{Colors.END}")
-        results = apply_bulk_fixes(
-            all_findings, 
-            dry_run=False, 
-            backup=True, 
-            interactive=False
-        )
-    
-    # Show results
-    print(f"\n{Colors.CYAN}{'='*60}{Colors.END}")
-    print(f"{Colors.BOLD}📊 FIX APPLICATION RESULTS:{Colors.END}")
-    print(f"{Colors.CYAN}{'='*60}{Colors.END}")
-    
-    print(f"Total files: {results['total']}")
-    print(f"Successfully applied: {Colors.GREEN}{results['applied']}{Colors.END}")
-    print(f"Failed: {Colors.RED}{results['failed']}{Colors.END}")
-    print(f"Skipped: {Colors.YELLOW}{results['skipped']}{Colors.END}")
-    
-    # Show backup information
-    backups = [r for r in results['results'] if r.get('backup_created')]
-    if backups:
-        print(f"\n{Colors.GREEN}✅ Backups created for {len(backups)} files:{Colors.END}")
-        for backup in backups[:5]:  # Show first 5 backups
-            print(f"  • {backup['path']} -> {backup.get('backup_path', 'unknown')}")
-        if len(backups) > 5:
-            print(f"  ... and {len(backups) - 5} more")
-    
-    # Show failed fixes
-    failures = [r for r in results['results'] if r['status'] in ['FAILED', 'ERROR']]
-    if failures:
-        print(f"\n{Colors.RED}❌ Failed fixes:{Colors.END}")
-        for fail in failures:
-            print(f"  • {fail['path']}: {fail.get('message', 'Unknown error')}")
-    
-    # Exit with appropriate code
-    if results['failed'] > 0:
-        print(f"\n{Colors.YELLOW}[!] Some fixes failed. Check output above.{Colors.END}")
-        sys.exit(1)
-    else:
-        print(f"\n{Colors.GREEN}[+] All fixes applied successfully!{Colors.END}")
-        sys.exit(0)
+        print(f"{Colors.YELLOW}{'!'*80}{Colors.END}")
+        print(f"{Colors.RED}{Colors.BOLD}⚠️  WARNING: PERMISSION MODIFICATION MODE{Colors.END}")
+        print(f"{Colors.YELLOW}This will change file permissions on your system.{Colors.END}")
+        print(f"{Colors.YELLOW}{'!'*80}{Colors.END}")
+        
+        all_findings = findings + docker_findings
+        
+        # Show summary
+        print(f"\n{Colors.BLUE}[*] Found {len(all_findings)} issues to fix:{Colors.END}")
+        for i, finding in enumerate(all_findings, 1):
+            print(f"  {i}. {finding['path']} ({finding['severity']} - {finding['permissions']})")
+        
+        # Get user confirmation
+        if not args.interactive:
+            print(f"\n{Colors.YELLOW}You are about to modify {len(all_findings)} files.{Colors.END}")
+            print(f"{Colors.YELLOW}Backups will be created for regular files.{Colors.END}")
+            confirm = input(f"\nType 'APPLY' to continue, or anything else to cancel: ").strip()
+            if confirm != 'APPLY':
+                print(f"{Colors.YELLOW}[!] Application cancelled.{Colors.END}")
+                sys.exit(0)
+        
+        # Apply fixes
+        if args.interactive:
+            # Interactive mode - fix one by one
+            print(f"\n{Colors.CYAN}[*] Interactive fix mode{Colors.END}")
+            print(f"{Colors.YELLOW}You will be asked for each file individually.{Colors.END}")
+            
+            results = apply_bulk_fixes(
+                all_findings, 
+                dry_run=False, 
+                backup=True, 
+                interactive=True
+            )
+        else:
+            # Batch mode - apply all
+            print(f"\n{Colors.BLUE}[*] Applying all fixes in batch mode...{Colors.END}")
+            results = apply_bulk_fixes(
+                all_findings, 
+                dry_run=False, 
+                backup=True, 
+                interactive=False
+            )
+        
+        # Show results
+        print(f"\n{Colors.CYAN}{'='*60}{Colors.END}")
+        print(f"{Colors.BOLD}📊 FIX APPLICATION RESULTS:{Colors.END}")
+        print(f"{Colors.CYAN}{'='*60}{Colors.END}")
+        
+        print(f"Total files: {results['total']}")
+        print(f"Successfully applied: {Colors.GREEN}{results['applied']}{Colors.END}")
+        print(f"Failed: {Colors.RED}{results['failed']}{Colors.END}")
+        print(f"Skipped: {Colors.YELLOW}{results['skipped']}{Colors.END}")
+        
+        # Show backup information
+        backups = [r for r in results['results'] if r.get('backup_created')]
+        if backups:
+            print(f"\n{Colors.GREEN}✅ Backups created for {len(backups)} files:{Colors.END}")
+            for backup in backups[:5]:  # Show first 5 backups
+                print(f"  • {backup['path']} -> {backup.get('backup_path', 'unknown')}")
+            if len(backups) > 5:
+                print(f"  ... and {len(backups) - 5} more")
+        
+        # Show failed fixes
+        failures = [r for r in results['results'] if r['status'] in ['FAILED', 'ERROR']]
+        if failures:
+            print(f"\n{Colors.RED}❌ Failed fixes:{Colors.END}")
+            for fail in failures:
+                print(f"  • {fail['path']}: {fail.get('message', 'Unknown error')}")
+        
+        # Exit with appropriate code
+        if results['failed'] > 0:
+            print(f"\n{Colors.YELLOW}[!] Some fixes failed. Check output above.{Colors.END}")
+            sys.exit(1)
+        else:
+            print(f"\n{Colors.GREEN}[+] All fixes applied successfully!{Colors.END}")
+            sys.exit(0)
     
     # Generate report
     if args.json:
@@ -1166,6 +1178,8 @@ def main():
         
         if indices:
             print(f"\n{Colors.BLUE}[*] Preview of {len(indices)} fixes (dry run):{Colors.END}")
+            # Fix: add missing function import or implementation
+            from auditor import apply_selected_fixes
             results = apply_selected_fixes(all_findings, indices, dry_run=True)
             
             for result in results:
