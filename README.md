@@ -46,4 +46,4 @@ git clone https://github.com/altynai9128/permission-auditor2.git
 cd permission-auditor2
 
 # Run directly from source
-python3 src/auditor.py --help
+python auditor.py /var/www                    # Basic scan
