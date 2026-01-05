@@ -1,4 +1,3 @@
-```markdown
 # 🔐 Linux Permission Auditor
 
 **Solution to prevent `chmod -R 777` security holes**
@@ -60,7 +59,6 @@ For each issue, you'll get:
 
 ## ⚡ Quick Start (30 seconds)
 
-```bash
 # Install
 git clone https://github.com/yourusername/permission-auditor2.git
 cd permission-auditor2
@@ -75,7 +73,3 @@ perm-audit /home -r --fix
 
 # Apply fixes safely
 perm-audit /path --apply --interactive
-```
-
-**Need help?** Run `perm-audit --help` or check the examples above!
-```
